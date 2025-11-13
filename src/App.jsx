@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Gamification from './components/Gamification'
 import Banking from './components/Banking'
 
@@ -35,11 +35,22 @@ function useFetch(url){
 
 function GamificationPanel(){
   const {data, loading, refetch} = useFetch(`${API}/api/gamification/profile?user_id=demo-user`)
+  const prevXp = useRef(0)
+  const [confetti, setConfetti] = useState(false)
+  useEffect(()=>{
+    if(!data) return
+    if(data.xp > prevXp.current){
+      setConfetti(true)
+      setTimeout(()=>setConfetti(false), 1400)
+      prevXp.current = data.xp
+    }
+  },[data])
   return (
-    <Section title="Your Progress" actions={<button onClick={refetch} className="px-3 py-1 text-sm bg-slate-800 text-white rounded">Refresh</button>}>
+    <Section title="Your Progress" actions={<div className="flex items-center gap-2"><button onClick={refetch} className="px-3 py-1 text-sm bg-slate-800 text-white rounded">Refresh</button><span className="text-xs text-slate-500">Streak: {data?.streak_days||0} days</span></div>}>
       {loading && <div>Loading...</div>}
       {!!data && (
-        <div className="space-y-2">
+        <div className="space-y-2 relative">
+          {confetti && <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none text-3xl">🎉✨🎊</div>}
           <div className="text-slate-700">Level {data.level} • {data.xp} XP</div>
           <div className="w-full bg-slate-100 rounded h-2 overflow-hidden">
             <div className="bg-emerald-500 h-2" style={{width: `${(data.xp%200)/2}%`}}></div>
@@ -85,7 +96,7 @@ function Profiles(){
           </select>
           <select className="input" value={user.master_salary_account_id} onChange={e=>setUser({...user, master_salary_account_id:e.target.value})}>
             <option value="">Select master salary account</option>
-            {(accs?.accounts||[]).map(a=> <option key={a.id} value={a.id}>{a.name} • {a.number||''}</option>)}
+            {(accs?.accounts||[]).map(a=> <option key={a.id} value={a.account_id}>{a.name} • {a.number||a.number_masked||''}</option>)}
           </select>
           <button onClick={saveUser} className="btn-primary">Save Individual</button>
         </div>
@@ -98,7 +109,7 @@ function Profiles(){
           </select>
           <select className="input" value={biz.master_income_account_id} onChange={e=>setBiz({...biz, master_income_account_id:e.target.value})}>
             <option value="">Select master income account</option>
-            {(accs?.accounts||[]).map(a=> <option key={a.id} value={a.id}>{a.name} • {a.number||''}</option>)}
+            {(accs?.accounts||[]).map(a=> <option key={a.id} value={a.account_id}>{a.name} • {a.number||a.number_masked||''}</option>)}
           </select>
           <button onClick={saveBiz} className="btn-primary">Save Business</button>
         </div>
@@ -130,9 +141,16 @@ function IncomeExpenses(){
   const [occ, setOcc] = useState('IT Consultant')
   const [ind, setInd] = useState('it consulting')
   const [ded, setDed] = useState({suggestions:[], insights:[]})
+  const [newDed, setNewDed] = useState('')
   const fetchDed = async ()=>{
     const d = await fetch(`${API}/api/deductions?occupation=${encodeURIComponent(occ)}&industry=${encodeURIComponent(ind)}`).then(r=>r.json())
     setDed(d)
+  }
+  const addDedCatalog = async ()=>{
+    if(!newDed.trim()) return
+    await fetch(`${API}/api/deductions/catalog`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title: newDed, occupation: occ, industry: ind})})
+    setNewDed('')
+    fetchDed()
   }
   return (
     <Section title="Income, Expenses & Deductions" actions={<select className="input" value={ownerType} onChange={e=>setOwnerType(e.target.value)}><option value="user">Individual</option><option value="business">Business</option></select>}>
@@ -168,9 +186,23 @@ function IncomeExpenses(){
           <ul className="list-disc pl-5 text-sm space-y-1">
             {ded.suggestions?.map((s,idx)=> <li key={idx}>{s}</li>)}
           </ul>
-          <div className="text-sm text-slate-700">Industry Insights:</div>
-          <ul className="list-disc pl-5 text-sm space-y-1">
-            {ded.insights?.map((s,idx)=> <li key={idx}>{s.title} • {s.type}</li>)}
+          <div className="flex gap-2 mt-2">
+            <input className="input flex-1" placeholder="Add to catalog" value={newDed} onChange={e=>setNewDed(e.target.value)} />
+            <button onClick={addDedCatalog} className="btn-secondary">Add</button>
+          </div>
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <div className="font-medium mb-1">Incomes</div>
+          <ul className="space-y-1 text-sm">
+            {items.incomes.map((i,idx)=> <li key={idx} className="flex justify-between"><span>{i.source} • {i.frequency}</span><span>${i.amount}</span></li>)}
+          </ul>
+        </div>
+        <div>
+          <div className="font-medium mb-1">Expenses</div>
+          <ul className="space-y-1 text-sm">
+            {items.expenses.map((i,idx)=> <li key={idx} className="flex justify-between"><span>{i.name} • {i.frequency}</span><span>${i.amount}</span></li>)}
           </ul>
         </div>
       </div>
@@ -189,14 +221,15 @@ function StrategyBuilder(){
   const [name, setName] = useState('Balanced')
   const [allocations, setAllocations] = useState(presets[3].allocations)
   const [ownerType, setOwnerType] = useState('user')
+  const [cadence, setCadence] = useState('monthly')
   const ownerId = ownerType==='user' ? 'demo-user' : 'demo-biz'
   useEffect(()=>{
     const p = presets.find(p=>p.name===name)
-    if(p){ setAllocations(p.allocations) }
+    if(p){ setAllocations(p.allocations.map(a=>({...a}))) }
   },[name])
   const addBucket = ()=> setAllocations([...allocations, {bucket:'New Bucket', type:'percent', value:0}])
   const save = async ()=>{
-    await fetch(`${API}/api/strategies`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, allocations})})
+    await fetch(`${API}/api/strategies`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title: name, audience: ownerType==='user'?'individual':'business', kind: name==='Custom'?'custom':'prebuilt', allocations})})
     alert('Strategy saved')
   }
   const [sim, setSim] = useState(null)
@@ -215,14 +248,26 @@ function StrategyBuilder(){
     await fetch(`${API}/api/account-mapping`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, bucket, bank_account_id})})
     loadMappings()
   }
+  const [plan, setPlan] = useState(null)
   const apply = async ()=>{
-    const res = await fetch(`${API}/api/strategy/apply`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, strategy_id: name, sync_frequency: 'monthly'})}).then(r=>r.json())
+    const res = await fetch(`${API}/api/strategy/apply`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, strategy_id: name, sync_frequency: cadence})}).then(r=>r.json())
     alert('Routing plan created. No money moved yet. See Transfers panel below.')
     setPlan(res)
   }
-  const [plan, setPlan] = useState(null)
+  const acctLabel = (id)=>{
+    const list = accs?.accounts||[]
+    const a = list.find(x=>x.account_id===id || x.id===id)
+    if(!a) return id||''
+    return `${a.name} • ${a.number||a.number_masked||a.account_id}`
+  }
+  const projectedRows = useMemo(()=>{
+    if(!plan?.projected_balances) return []
+    const entries = Object.entries(plan.projected_balances)
+    const list = accs?.accounts||[]
+    return entries.map(([id, bal])=>({id, name: acctLabel(id), bal}))
+  },[plan, accs])
   return (
-    <Section title="Strategies & Routing" actions={<select className="input" value={ownerType} onChange={e=>{setOwnerType(e.target.value);}}><option value="user">Individual</option><option value="business">Business</option></select>}>
+    <Section title="Strategies & Routing" actions={<div className="flex items-center gap-2"><select className="input" value={ownerType} onChange={e=>{setOwnerType(e.target.value);}}><option value="user">Individual</option><option value="business">Business</option></select><select className="input" value={cadence} onChange={e=>setCadence(e.target.value)}><option value="weekly">Weekly</option><option value="fortnightly">Fortnightly</option><option value="monthly">Monthly</option></select></div>}>
       <div className="space-y-4">
         <div className="grid md:grid-cols-3 gap-4">
           <div className="space-y-2">
@@ -232,6 +277,7 @@ function StrategyBuilder(){
             </select>
             <button onClick={addBucket} className="btn-secondary">Add Bucket</button>
             <button onClick={save} className="btn-primary">Save Strategy</button>
+            <div className="text-xs text-slate-500">Up to 5 presets supported. Add custom buckets anytime.</div>
           </div>
           <div className="space-y-2">
             <div className="font-medium">Allocations</div>
@@ -245,7 +291,10 @@ function StrategyBuilder(){
                 <input type="number" className="input w-24" value={a.value} onChange={e=>{const n=[...allocations]; n[idx]={...a, value: parseFloat(e.target.value||0)}; setAllocations(n)}} />
               </div>
             ))}
-            <button onClick={simulate} className="btn-secondary">Simulate</button>
+            <div className="flex gap-2">
+              <button onClick={simulate} className="btn-secondary">Simulate</button>
+              <a className="btn-secondary" href={`${API}/api/export/routing-plan.csv`} target="_blank" rel="noreferrer">Export Plan CSV</a>
+            </div>
           </div>
           <div className="space-y-2">
             <div className="font-medium">Account Mappings</div>
@@ -254,11 +303,12 @@ function StrategyBuilder(){
                 <div className="w-40 text-sm">{a.bucket}</div>
                 <select className="input flex-1" value={mappings.find(m=>m.bucket.toLowerCase()===a.bucket.toLowerCase())?.bank_account_id||''} onChange={e=>setMap(a.bucket, e.target.value)}>
                   <option value="">Select account</option>
-                  {(accs?.accounts||[]).map(ac=> <option key={ac.id} value={ac.id}>{ac.name} • {ac.number||ac.id}</option>)}
+                  {(accs?.accounts||[]).map(ac=> <option key={ac.id} value={ac.account_id}>{ac.name} • {ac.number||ac.number_masked||ac.account_id}</option>)}
                 </select>
               </div>
             ))}
             <button onClick={apply} className="btn-primary">Apply Strategy (Plan Only)</button>
+            {plan && <div className="text-xs text-slate-600">Cadence: {plan.sync_frequency} • Next run: {plan.next_run}</div>}
           </div>
         </div>
         {sim && (
@@ -270,11 +320,19 @@ function StrategyBuilder(){
           </div>
         )}
         {plan && (
-          <div className="border rounded p-3">
+          <div className="border rounded p-3 space-y-3">
             <div className="font-medium">Transfers (Scheduled)</div>
-            <div className="text-sm text-slate-600">This demonstrates the routing architecture. Funds will be moved on your chosen sync in a later version.</div>
+            <div className="text-sm text-slate-600">Demo routing only. No funds will move until live sync is enabled.</div>
             <div className="grid sm:grid-cols-2 gap-2 mt-2">
-              {plan.transfers?.map((t,idx)=> <div key={idx} className="flex justify-between text-sm"><span>{t.bucket}</span><span>{t.source_account_id} → {t.destination_account_id}</span><span>${t.amount}</span></div>)}
+              {plan.transfers?.map((t,idx)=> <div key={idx} className="flex justify-between text-sm"><span>{t.bucket}</span><span>{acctLabel(t.source_account_id)} → {acctLabel(t.destination_account_id)}</span><span>${t.amount}</span></div>)}
+            </div>
+            <div>
+              <div className="font-medium">Projected Post-Transfer Balances</div>
+              <div className="grid md:grid-cols-2 gap-2 mt-2">
+                {projectedRows.map((r,idx)=> (
+                  <div key={idx} className="flex justify-between text-sm border rounded p-2"><span>{r.name}</span><span>${Number(r.bal||0).toFixed(2)}</span></div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -293,23 +351,60 @@ function NetWorth(){
     await fetch(`${API}/api/networth/snapshot`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
     refetch()
   }
+  const [chartMode, setChartMode] = useState('net') // net | stacked
+  const [csv, setCsv] = useState('date,assets,liabilities\n2025-01-01,100000,40000\n2025-02-01,101000,39500')
+  const importCsv = async ()=>{
+    const rows = csv.split(/\n/).slice(1).filter(Boolean).map(line=>{
+      const [date, assets, liabilities] = line.split(',')
+      return {date, assets, liabilities}
+    })
+    await fetch(`${API}/api/networth/import`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, rows})})
+    setCsv('')
+    refetch()
+  }
+  const series = data?.series||[]
+  const maxVal = useMemo(()=>{
+    if(series.length===0) return 1
+    if(chartMode==='net') return Math.max(...series.map(p=>p.net_worth||0),1)
+    return Math.max(...series.map(p=>Math.max(p.assets||0, p.liabilities||0)),1)
+  },[series, chartMode])
   return (
-    <Section title="Net Worth" actions={<select className="input" value={ownerType} onChange={e=>setOwnerType(e.target.value)}><option value="user">Individual</option><option value="business">Business</option></select>}>
+    <Section title="Net Worth" actions={<div className="flex items-center gap-2"><select className="input" value={ownerType} onChange={e=>setOwnerType(e.target.value)}><option value="user">Individual</option><option value="business">Business</option></select><a className="btn-secondary" href={`${API}/api/export/networth.csv?owner_type=${ownerType}&owner_id=${ownerId}`} target="_blank" rel="noreferrer">Export CSV</a></div>}>
       <div className="space-y-2">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <button onClick={add} className="btn-primary">Add Snapshot</button>
           <button onClick={refetch} className="btn-secondary">Refresh</button>
+          <select className="input" value={chartMode} onChange={e=>setChartMode(e.target.value)}>
+            <option value="net">Net worth</option>
+            <option value="stacked">Stacked: Assets vs Liabilities</option>
+          </select>
         </div>
-        <div className="h-32 bg-slate-100 rounded flex items-end gap-1 p-2">
-          {(data?.series||[]).map((pt,idx)=>{
-            const max = Math.max(...(data?.series||[]).map(p=>p.net_worth||0), 1)
-            const h = Math.max(2, Math.round((pt.net_worth||0)/max*100))
-            return <div key={idx} title={`${pt.date}: $${pt.net_worth}`} className="bg-emerald-500 w-6" style={{height: `${h}%`}}></div>
+        <div className="h-40 bg-slate-100 rounded flex items-end gap-2 p-2 overflow-x-auto">
+          {series.map((pt,idx)=>{
+            if(chartMode==='net'){
+              const h = Math.max(2, Math.round((pt.net_worth||0)/maxVal*100))
+              return <div key={idx} title={`${pt.date}: $${pt.net_worth}`} className="bg-emerald-500 w-6" style={{height: `${h}%`}}></div>
+            }
+            const ha = Math.max(2, Math.round((pt.assets||0)/maxVal*100))
+            const hl = Math.max(2, Math.round((pt.liabilities||0)/maxVal*100))
+            return (
+              <div key={idx} className="w-8 flex flex-col justify-end" title={`${pt.date}: A$${pt.assets} / L$${pt.liabilities}`}>
+                <div className="bg-emerald-500" style={{height: `${ha}%`}}></div>
+                <div className="bg-rose-400" style={{height: `${hl}%`}}></div>
+              </div>
+            )
           })}
         </div>
         <details className="bg-slate-50 border rounded p-3">
           <summary className="cursor-pointer font-medium">Expand: Strategy Architecture</summary>
           <StrategyArchitecture />
+        </details>
+        <details className="bg-slate-50 border rounded p-3">
+          <summary className="cursor-pointer font-medium">CSV Import</summary>
+          <div className="space-y-2">
+            <textarea className="w-full h-32 border rounded p-2" value={csv} onChange={e=>setCsv(e.target.value)} />
+            <button onClick={importCsv} className="btn-secondary">Import</button>
+          </div>
         </details>
       </div>
     </Section>
@@ -322,9 +417,9 @@ function StrategyArchitecture(){
     <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {(accs?.accounts||[]).map(a => (
         <div key={a.id} className="border rounded p-3">
-          <div className="font-medium">{a.name} • {a.number || a.id}</div>
-          <div className="text-sm text-slate-600">{a.institution} • {a.type}</div>
-          <div className="text-slate-800">Balance: ${a.balance?.toFixed(2)}</div>
+          <div className="font-medium">{a.name} • {a.number || a.number_masked || a.account_id}</div>
+          <div className="text-sm text-slate-600">{a.provider || a.institution || 'Bank'} • {a.type || 'Account'}</div>
+          <div className="text-slate-800">Balance: ${Number(a.balance||0).toFixed(2)}</div>
         </div>
       ))}
     </div>
@@ -351,5 +446,3 @@ export default function App(){
     </div>
   )
 }
-
-// simple utility styles using Tailwind existing classes
