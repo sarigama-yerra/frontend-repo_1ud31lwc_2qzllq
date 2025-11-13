@@ -1,491 +1,355 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Gamification from './components/Gamification'
 import Banking from './components/Banking'
 
-function NumberInput({ label, value, onChange, step = 0.01, min = 0, prefix = '$', suffix = '', disabled = false }) {
-  return (
-    <label className="block">
-      <span className="text-sm text-gray-700">{label}</span>
-      <div className={`mt-1 flex items-center rounded border ${disabled ? 'bg-gray-100' : 'bg-white'} px-3 py-2`}>
-        {prefix && <span className="mr-2 text-gray-500">{prefix}</span>}
-        <input
-          type="number"
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value || '0'))}
-          step={step}
-          min={min}
-          disabled={disabled}
-          className="w-full outline-none bg-transparent"
-        />
-        {suffix && <span className="ml-2 text-gray-500">{suffix}</span>}
-      </div>
-    </label>
-  )
-}
+const API = import.meta.env.VITE_BACKEND_URL || ''
 
-function Section({ title, children, right }) {
+function Section({ title, children, actions }){
   return (
-    <div className="rounded-xl border bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
-        {right}
+    <div className="bg-white/70 backdrop-blur rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+        <div>{actions}</div>
       </div>
-      {children}
+      <div>{children}</div>
     </div>
   )
 }
 
-function App() {
-  const baseUrl = useMemo(() => import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000', [])
-
-  const [mode, setMode] = useState('individual') // individual | business
-
-  // Tax inputs
-  const [taxIncome, setTaxIncome] = useState(120000)
-  const [taxResult, setTaxResult] = useState(null)
-
-  // Cashflow inputs
-  const [incomeMonthly, setIncomeMonthly] = useState(9000)
-  const [expensesMonthly, setExpensesMonthly] = useState(6500)
-  const [savingsRateTarget, setSavingsRateTarget] = useState(0.2)
-  const [cashflowResult, setCashflowResult] = useState(null)
-
-  // Super (only for individual)
-  const [salary, setSalary] = useState(120000)
-  const [concessional, setConcessional] = useState(10000)
-  const [superResult, setSuperResult] = useState(null)
-
-  // Scenarios
-  const [scenarioName, setScenarioName] = useState('My Plan')
-  const [notes, setNotes] = useState('')
-  const [scenarios, setScenarios] = useState([])
-  const [saving, setSaving] = useState(false)
-
-  // Strategies
-  const [prebuilt, setPrebuilt] = useState([])
-  const [generated, setGenerated] = useState(null)
-  const [strategies, setStrategies] = useState([])
-  const [loadingStrategies, setLoadingStrategies] = useState(false)
-  const [savingStrategy, setSavingStrategy] = useState(false)
-
-  // Gamification refresh key
-  const [gamKey, setGamKey] = useState(0)
-
-  const fetchScenarios = async () => {
-    try {
-      const r = await fetch(`${baseUrl}/api/scenarios`)
-      const data = await r.json()
-      setScenarios(data)
-    } catch (e) {
-      // ignore
-    }
+function useFetch(url){
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const refetch = async ()=>{
+    if(!url) return
+    try{
+      setLoading(true)
+      const res = await fetch(url)
+      const j = await res.json()
+      setData(j)
+    }catch(e){ setError(e)} finally{ setLoading(false)}
   }
+  useEffect(()=>{refetch()},[url])
+  return {data, loading, error, refetch}
+}
 
-  const fetchPrebuilt = async () => {
-    try {
-      const r = await fetch(`${baseUrl}/api/strategies/prebuilt?audience=${mode}`)
-      const data = await r.json()
-      setPrebuilt(data)
-    } catch (e) {
-      setPrebuilt([])
-    }
-  }
-
-  const fetchStrategies = async () => {
-    setLoadingStrategies(true)
-    try {
-      const r = await fetch(`${baseUrl}/api/strategies?audience=${mode}`)
-      const data = await r.json()
-      setStrategies(data)
-    } catch (e) {
-      setStrategies([])
-    } finally {
-      setLoadingStrategies(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchScenarios()
-    fetchPrebuilt()
-    fetchStrategies()
-  }, [])
-
-  useEffect(() => {
-    // refresh audience-based lists when mode changes
-    fetchPrebuilt()
-    fetchStrategies()
-  }, [mode])
-
-  const runTax = async () => {
-    const entity = mode === 'business' ? 'company' : 'individual'
-    const payload = { entity, taxable_income: taxIncome }
-    const r = await fetch(`${baseUrl}/api/tax`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await r.json()
-    setTaxResult(data)
-  }
-
-  const runCashflow = async () => {
-    const payload = { income_monthly: incomeMonthly, expenses_monthly: expensesMonthly, savings_rate_target: savingsRateTarget }
-    const r = await fetch(`${baseUrl}/api/cashflow`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await r.json()
-    setCashflowResult(data)
-  }
-
-  const runSuper = async () => {
-    const payload = { salary, concessional_contrib: concessional }
-    const r = await fetch(`${baseUrl}/api/super`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const data = await r.json()
-    setSuperResult(data)
-  }
-
-  const saveScenario = async () => {
-    setSaving(true)
-    try {
-      const inputs = {
-        mode,
-        taxIncome,
-        incomeMonthly,
-        expensesMonthly,
-        savingsRateTarget,
-        salary,
-        concessional,
-      }
-      const results = { taxResult, cashflowResult, superResult }
-      const payload = { name: scenarioName, scenario_type: mode, inputs, results, notes }
-      const r = await fetch(`${baseUrl}/api/scenarios`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!r.ok) throw new Error('Save failed')
-      await fetchScenarios()
-      setGamKey((k) => k + 1)
-    } catch (e) {
-      alert('Could not save scenario: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const generateStrategy = async () => {
-    try {
-      const inputs = {
-        incomeMonthly,
-        expensesMonthly,
-        savingsRateTarget,
-        salary,
-        concessional,
-      }
-      const results = { taxResult, cashflowResult, superResult }
-      const payload = { scenario_type: mode, inputs, results }
-      const r = await fetch(`${baseUrl}/api/strategies/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      const data = await r.json()
-      setGenerated(data)
-    } catch (e) {
-      alert('Failed to generate strategy')
-    }
-  }
-
-  const saveStrategy = async (strategy) => {
-    setSavingStrategy(true)
-    try {
-      const r = await fetch(`${baseUrl}/api/strategies`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(strategy)
-      })
-      if (!r.ok) throw new Error('Save strategy failed')
-      await fetchStrategies()
-      setGamKey((k) => k + 1)
-      alert('Strategy saved')
-    } catch (e) {
-      alert(e.message)
-    } finally {
-      setSavingStrategy(false)
-    }
-  }
-
-  useEffect(() => {
-    // auto-run on load for quick results
-    runTax()
-    runCashflow()
-    if (mode === 'individual') runSuper()
-  }, [mode])
-
+function GamificationPanel(){
+  const {data, loading, refetch} = useFetch(`${API}/api/gamification/profile?user_id=demo-user`)
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-emerald-50">
-      <header className="border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-600 to-emerald-500 text-white grid place-items-center font-bold">F</div>
-            <div>
-              <div className="text-xl font-bold tracking-tight">Finance Optimizer AU</div>
-              <div className="text-xs text-gray-500">Gamified planning • CDR demo connections</div>
-            </div>
+    <Section title="Your Progress" actions={<button onClick={refetch} className="px-3 py-1 text-sm bg-slate-800 text-white rounded">Refresh</button>}>
+      {loading && <div>Loading...</div>}
+      {!!data && (
+        <div className="space-y-2">
+          <div className="text-slate-700">Level {data.level} • {data.xp} XP</div>
+          <div className="w-full bg-slate-100 rounded h-2 overflow-hidden">
+            <div className="bg-emerald-500 h-2" style={{width: `${(data.xp%200)/2}%`}}></div>
           </div>
-          <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1">
-            {['individual', 'business'].map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={`px-3 py-1.5 text-sm font-medium rounded ${mode === m ? 'bg-white shadow' : 'text-gray-600'}`}
-              >
-                {m === 'individual' ? 'Individual' : 'Business'}
-              </button>
+          <div className="flex gap-2 flex-wrap">
+            {(data.badges||[]).map(b=> <span key={b} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">{b}</span>)}
+          </div>
+        </div>
+      )}
+    </Section>
+  )
+}
+
+function BankingPanel(){
+  return (
+    <Section title="Bank Connections">
+      <Banking baseUrl={API} onLinked={()=>{}} />
+    </Section>
+  )
+}
+
+function Profiles(){
+  const [user, setUser] = useState({user_id:'demo-user', name:'Demo User', occupation:'IT Consultant', master_salary_account_id:'', income_frequency:'monthly'})
+  const [biz, setBiz] = useState({business_id:'demo-biz', name:'Demo Pty Ltd', abn_acn:'12 345 678 901', industry:'it consulting', master_income_account_id:''})
+  const {data: accs} = useFetch(`${API}/api/cdr/accounts`)
+  const saveUser = async ()=>{
+    await fetch(`${API}/api/profile/user`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(user)})
+    alert('User profile saved')
+  }
+  const saveBiz = async ()=>{
+    await fetch(`${API}/api/profile/business`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(biz)})
+    alert('Business profile saved')
+  }
+  return (
+    <Section title="Profiles">
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <div className="text-slate-700 font-medium">Individual</div>
+          <input className="input" placeholder="Name" value={user.name} onChange={e=>setUser({...user, name:e.target.value})} />
+          <input className="input" placeholder="Occupation" value={user.occupation} onChange={e=>setUser({...user, occupation:e.target.value})} />
+          <select className="input" value={user.income_frequency} onChange={e=>setUser({...user, income_frequency:e.target.value})}>
+            {['weekly','fortnightly','monthly','annual'].map(f=> <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select className="input" value={user.master_salary_account_id} onChange={e=>setUser({...user, master_salary_account_id:e.target.value})}>
+            <option value="">Select master salary account</option>
+            {(accs?.accounts||[]).map(a=> <option key={a.id} value={a.id}>{a.name} • {a.number||''}</option>)}
+          </select>
+          <button onClick={saveUser} className="btn-primary">Save Individual</button>
+        </div>
+        <div className="space-y-2">
+          <div className="text-slate-700 font-medium">Business</div>
+          <input className="input" placeholder="Business name" value={biz.name} onChange={e=>setBiz({...biz, name:e.target.value})} />
+          <input className="input" placeholder="ABN/ACN" value={biz.abn_acn} onChange={e=>setBiz({...biz, abn_acn:e.target.value})} />
+          <select className="input" value={biz.industry} onChange={e=>setBiz({...biz, industry:e.target.value})}>
+            {['horeca','speciality stores','it consulting','healthcare'].map(i=> <option key={i} value={i}>{i}</option>)}
+          </select>
+          <select className="input" value={biz.master_income_account_id} onChange={e=>setBiz({...biz, master_income_account_id:e.target.value})}>
+            <option value="">Select master income account</option>
+            {(accs?.accounts||[]).map(a=> <option key={a.id} value={a.id}>{a.name} • {a.number||''}</option>)}
+          </select>
+          <button onClick={saveBiz} className="btn-primary">Save Business</button>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function IncomeExpenses(){
+  const [ownerType, setOwnerType] = useState('user')
+  const ownerId = ownerType==='user' ? 'demo-user' : 'demo-biz'
+  const [income, setIncome] = useState({amount: 8000, frequency: 'monthly', source:'Salary'})
+  const [expense, setExpense] = useState({name:'Rent', amount: 2500, frequency:'monthly', category:'housing', deductible:false})
+  const [items, setItems] = useState({incomes:[], expenses:[]})
+  const load = async ()=>{
+    const i = await fetch(`${API}/api/income?owner_type=${ownerType}&owner_id=${ownerId}`).then(r=>r.json())
+    const e = await fetch(`${API}/api/expenses?owner_type=${ownerType}&owner_id=${ownerId}`).then(r=>r.json())
+    setItems({incomes: i.items||[], expenses: e.items||[]})
+  }
+  useEffect(()=>{load()},[ownerType])
+  const addInc = async ()=>{
+    await fetch(`${API}/api/income`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, ...income})})
+    load()
+  }
+  const addExp = async ()=>{
+    await fetch(`${API}/api/expenses`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, ...expense})})
+    load()
+  }
+  const [occ, setOcc] = useState('IT Consultant')
+  const [ind, setInd] = useState('it consulting')
+  const [ded, setDed] = useState({suggestions:[], insights:[]})
+  const fetchDed = async ()=>{
+    const d = await fetch(`${API}/api/deductions?occupation=${encodeURIComponent(occ)}&industry=${encodeURIComponent(ind)}`).then(r=>r.json())
+    setDed(d)
+  }
+  return (
+    <Section title="Income, Expenses & Deductions" actions={<select className="input" value={ownerType} onChange={e=>setOwnerType(e.target.value)}><option value="user">Individual</option><option value="business">Business</option></select>}>
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <div className="font-medium">Add Income</div>
+          <input className="input" placeholder="Source" value={income.source} onChange={e=>setIncome({...income, source:e.target.value})} />
+          <input className="input" type="number" placeholder="Amount" value={income.amount} onChange={e=>setIncome({...income, amount: parseFloat(e.target.value||0)})} />
+          <select className="input" value={income.frequency} onChange={e=>setIncome({...income, frequency:e.target.value})}>
+            {['weekly','fortnightly','monthly','annual'].map(f=> <option key={f} value={f}>{f}</option>)}
+          </select>
+          <button onClick={addInc} className="btn-primary">Add Income</button>
+        </div>
+        <div className="space-y-2">
+          <div className="font-medium">Add Expense</div>
+          <input className="input" placeholder="Name" value={expense.name} onChange={e=>setExpense({...expense, name:e.target.value})} />
+          <input className="input" type="number" placeholder="Amount" value={expense.amount} onChange={e=>setExpense({...expense, amount: parseFloat(e.target.value||0)})} />
+          <select className="input" value={expense.frequency} onChange={e=>setExpense({...expense, frequency:e.target.value})}>
+            {['weekly','fortnightly','monthly','annual'].map(f=> <option key={f} value={f}>{f}</option>)}
+          </select>
+          <input className="input" placeholder="Category" value={expense.category} onChange={e=>setExpense({...expense, category:e.target.value})} />
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={expense.deductible} onChange={e=>setExpense({...expense, deductible:e.target.checked})}/> Deductible</label>
+          <button onClick={addExp} className="btn-primary">Add Expense</button>
+        </div>
+        <div className="space-y-2">
+          <div className="font-medium">Deductions Assistant</div>
+          <input className="input" placeholder="Occupation" value={occ} onChange={e=>setOcc(e.target.value)} />
+          <select className="input" value={ind} onChange={e=>setInd(e.target.value)}>
+            {['horeca','speciality stores','it consulting','healthcare'].map(i=> <option key={i} value={i}>{i}</option>)}
+          </select>
+          <button onClick={fetchDed} className="btn-secondary">Get Suggestions</button>
+          <div className="text-sm text-slate-700">Suggestions:</div>
+          <ul className="list-disc pl-5 text-sm space-y-1">
+            {ded.suggestions?.map((s,idx)=> <li key={idx}>{s}</li>)}
+          </ul>
+          <div className="text-sm text-slate-700">Industry Insights:</div>
+          <ul className="list-disc pl-5 text-sm space-y-1">
+            {ded.insights?.map((s,idx)=> <li key={idx}>{s.title} • {s.type}</li>)}
+          </ul>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function StrategyBuilder(){
+  const presets = [
+    {name:'Debt Free Fast', allocations:[{bucket:'Debt', type:'percent', value:40},{bucket:'Essentials', type:'percent', value:40},{bucket:'Emergency', type:'percent', value:10},{bucket:'Investments', type:'percent', value:10}]},
+    {name:'FIRE', allocations:[{bucket:'Investments', type:'percent', value:50},{bucket:'Essentials', type:'percent', value:30},{bucket:'Emergency', type:'percent', value:10},{bucket:'Discretionary', type:'percent', value:10}]},
+    {name:'Aggressive Investment', allocations:[{bucket:'Investments', type:'percent', value:60},{bucket:'Essentials', type:'percent', value:25},{bucket:'Emergency', type:'percent', value:5},{bucket:'Discretionary', type:'percent', value:10}]},
+    {name:'Balanced', allocations:[{bucket:'Investments', type:'percent', value:30},{bucket:'Essentials', type:'percent', value:45},{bucket:'Emergency', type:'percent', value:10},{bucket:'Discretionary', type:'percent', value:15}]},
+    {name:'Custom', allocations:[]},
+  ]
+  const [name, setName] = useState('Balanced')
+  const [allocations, setAllocations] = useState(presets[3].allocations)
+  const [ownerType, setOwnerType] = useState('user')
+  const ownerId = ownerType==='user' ? 'demo-user' : 'demo-biz'
+  useEffect(()=>{
+    const p = presets.find(p=>p.name===name)
+    if(p){ setAllocations(p.allocations) }
+  },[name])
+  const addBucket = ()=> setAllocations([...allocations, {bucket:'New Bucket', type:'percent', value:0}])
+  const save = async ()=>{
+    await fetch(`${API}/api/strategies`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, allocations})})
+    alert('Strategy saved')
+  }
+  const [sim, setSim] = useState(null)
+  const simulate = async ()=>{
+    const res = await fetch(`${API}/api/strategy/simulate`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, strategy_id: name})}).then(r=>r.json())
+    setSim(res)
+  }
+  const [mappings, setMappings] = useState([])
+  const {data: accs} = useFetch(`${API}/api/cdr/accounts`)
+  const loadMappings = async ()=>{
+    const res = await fetch(`${API}/api/account-mapping?owner_type=${ownerType}&owner_id=${ownerId}`).then(r=>r.json())
+    setMappings(res.items||[])
+  }
+  useEffect(()=>{loadMappings()},[ownerType])
+  const setMap = async (bucket, bank_account_id)=>{
+    await fetch(`${API}/api/account-mapping`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, bucket, bank_account_id})})
+    loadMappings()
+  }
+  const apply = async ()=>{
+    const res = await fetch(`${API}/api/strategy/apply`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({owner_type: ownerType, owner_id: ownerId, strategy_id: name, sync_frequency: 'monthly'})}).then(r=>r.json())
+    alert('Routing plan created. No money moved yet. See Transfers panel below.')
+    setPlan(res)
+  }
+  const [plan, setPlan] = useState(null)
+  return (
+    <Section title="Strategies & Routing" actions={<select className="input" value={ownerType} onChange={e=>{setOwnerType(e.target.value);}}><option value="user">Individual</option><option value="business">Business</option></select>}>
+      <div className="space-y-4">
+        <div className="grid md:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <div className="font-medium">Preset</div>
+            <select className="input" value={name} onChange={e=>setName(e.target.value)}>
+              {presets.map(p=> <option key={p.name} value={p.name}>{p.name}</option>)}
+            </select>
+            <button onClick={addBucket} className="btn-secondary">Add Bucket</button>
+            <button onClick={save} className="btn-primary">Save Strategy</button>
+          </div>
+          <div className="space-y-2">
+            <div className="font-medium">Allocations</div>
+            {allocations.map((a,idx)=> (
+              <div key={idx} className="flex items-center gap-2">
+                <input className="input flex-1" value={a.bucket} onChange={e=>{const n=[...allocations]; n[idx]={...a, bucket:e.target.value}; setAllocations(n)}} />
+                <select className="input" value={a.type} onChange={e=>{const n=[...allocations]; n[idx]={...a, type:e.target.value}; setAllocations(n)}}>
+                  <option value="percent">percent</option>
+                  <option value="fixed">fixed</option>
+                </select>
+                <input type="number" className="input w-24" value={a.value} onChange={e=>{const n=[...allocations]; n[idx]={...a, value: parseFloat(e.target.value||0)}; setAllocations(n)}} />
+              </div>
             ))}
+            <button onClick={simulate} className="btn-secondary">Simulate</button>
+          </div>
+          <div className="space-y-2">
+            <div className="font-medium">Account Mappings</div>
+            {allocations.map((a,idx)=> (
+              <div key={idx} className="flex items-center gap-2">
+                <div className="w-40 text-sm">{a.bucket}</div>
+                <select className="input flex-1" value={mappings.find(m=>m.bucket.toLowerCase()===a.bucket.toLowerCase())?.bank_account_id||''} onChange={e=>setMap(a.bucket, e.target.value)}>
+                  <option value="">Select account</option>
+                  {(accs?.accounts||[]).map(ac=> <option key={ac.id} value={ac.id}>{ac.name} • {ac.number||ac.id}</option>)}
+                </select>
+              </div>
+            ))}
+            <button onClick={apply} className="btn-primary">Apply Strategy (Plan Only)</button>
           </div>
         </div>
-      </header>
-
-      <main className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-6 py-6 md:grid-cols-3">
-        <div className="md:col-span-2 space-y-6">
-          <Section title="Tax Optimizer" right={<button onClick={runTax} className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Recalculate</button>}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <NumberInput label={`${mode === 'business' ? 'Company' : 'Personal'} Taxable Income (annual)`} value={taxIncome} onChange={setTaxIncome} />
+        {sim && (
+          <div className="border rounded p-3">
+            <div className="font-medium">Monthly Breakdown</div>
+            <div className="grid sm:grid-cols-2 gap-2 mt-2">
+              {sim.breakdown.map((b,idx)=> <div key={idx} className="flex justify-between text-sm"><span>{b.bucket}</span><span>${b.amount}</span></div>)}
             </div>
-            {taxResult && (
-              <div className="mt-4 rounded-lg bg-blue-50 p-4 text-sm">
-                <div className="font-medium text-blue-900">Estimated Tax</div>
-                <div className="mt-1 text-blue-800">Tax: ${taxResult.tax?.toLocaleString()}</div>
-                <div className="text-blue-800">Effective rate: {(taxResult.effective_rate * 100).toFixed(2)}%</div>
-                <p className="mt-2 text-blue-700">Note: Simplified 2024-25 AU rates for guidance only.</p>
-              </div>
-            )}
-          </Section>
-
-          <Section title="Cashflow & Savings" right={<button onClick={runCashflow} className="rounded bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700">Update</button>}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <NumberInput label="Monthly Income" value={incomeMonthly} onChange={setIncomeMonthly} />
-              <NumberInput label="Monthly Expenses" value={expensesMonthly} onChange={setExpensesMonthly} />
-              <NumberInput prefix="" suffix="%" step={0.01} label="Target Savings Rate" value={(savingsRateTarget || 0) * 100} onChange={(v) => setSavingsRateTarget((v || 0) / 100)} />
+          </div>
+        )}
+        {plan && (
+          <div className="border rounded p-3">
+            <div className="font-medium">Transfers (Scheduled)</div>
+            <div className="text-sm text-slate-600">This demonstrates the routing architecture. Funds will be moved on your chosen sync in a later version.</div>
+            <div className="grid sm:grid-cols-2 gap-2 mt-2">
+              {plan.transfers?.map((t,idx)=> <div key={idx} className="flex justify-between text-sm"><span>{t.bucket}</span><span>{t.source_account_id} → {t.destination_account_id}</span><span>${t.amount}</span></div>)}
             </div>
-            {cashflowResult && (
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <Stat title="Monthly Surplus" value={`$${cashflowResult.surplus_monthly?.toLocaleString()}`} />
-                <Stat title="Savings Rate" value={`${(cashflowResult.savings_rate * 100).toFixed(1)}%`} />
-                <Stat title="Target Savings" value={`$${cashflowResult.target_savings_amount?.toLocaleString()}/mo`} />
-              </div>
-            )}
-          </Section>
-
-          {mode === 'individual' && (
-            <Section title="Superannuation (SG 11.5%)" right={<button onClick={runSuper} className="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700">Check</button>}>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <NumberInput label="Salary (annual)" value={salary} onChange={setSalary} />
-                <NumberInput label="Concessional Contributions" value={concessional} onChange={setConcessional} />
-                <NumberInput label="Concessional Cap" value={27500} onChange={() => {}} disabled />
-              </div>
-              {superResult && (
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <Stat title="Employer SG" value={`$${superResult.sg_employer?.toLocaleString()}`} />
-                  <Stat title="Cap" value={`$${superResult.concessional_cap?.toLocaleString()}`} />
-                  <Stat title="Excess" value={`$${superResult.excess_contributions?.toLocaleString()}`} />
-                </div>
-              )}
-            </Section>
-          )}
-
-          <Section title="Strategies (AI-assisted)">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800">Prebuilt</h3>
-                  <span className="text-xs rounded bg-gray-100 px-2 py-1">{mode}</span>
-                </div>
-                <div className="space-y-3">
-                  {prebuilt.length === 0 ? (
-                    <p className="text-sm text-gray-500">No prebuilt strategies found.</p>
-                  ) : (
-                    prebuilt.map((s, idx) => (
-                      <div key={idx} className="rounded border p-3">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <div className="font-medium text-gray-900">{s.title}</div>
-                            <p className="text-sm text-gray-600 mt-1">{s.description}</p>
-                          </div>
-                          <button
-                            onClick={() => saveStrategy({
-                              title: s.title,
-                              audience: s.audience,
-                              kind: 'prebuilt',
-                              description: s.description,
-                              steps: s.steps,
-                              assumptions: {},
-                              estimated_impact: s.estimated_impact || {},
-                              scenario_id: null,
-                            })}
-                            className="rounded bg-gray-900 px-3 py-1.5 text-white text-sm hover:bg-black disabled:opacity-50"
-                            disabled={savingStrategy}
-                          >
-                            {savingStrategy ? 'Saving...' : 'Save'}
-                          </button>
-                        </div>
-                        {s.steps && s.steps.length > 0 && (
-                          <ul className="mt-2 list-disc pl-5 text-sm text-gray-700 space-y-1">
-                            {s.steps.map((st, i) => <li key={i}>{st}</li>)}
-                          </ul>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800">Generated</h3>
-                  <button onClick={generateStrategy} className="rounded bg-blue-600 px-3 py-1.5 text-white text-sm hover:bg-blue-700">Generate</button>
-                </div>
-                {generated ? (
-                  <div className="rounded border p-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">{generated.title}</div>
-                        <p className="text-sm text-gray-600 mt-1">{generated.description}</p>
-                      </div>
-                      <button
-                        onClick={() => saveStrategy({
-                          title: generated.title,
-                          audience: generated.audience,
-                          kind: 'generated',
-                          description: generated.description,
-                          steps: generated.steps || [],
-                          assumptions: generated.assumptions || {},
-                          estimated_impact: generated.estimated_impact || {},
-                          scenario_id: null,
-                        })}
-                        className="rounded bg-gray-900 px-3 py-1.5 text-white text-sm hover:bg-black disabled:opacity-50"
-                        disabled={savingStrategy}
-                      >
-                        {savingStrategy ? 'Saving...' : 'Save'}
-                      </button>
-                    </div>
-                    {generated.steps && generated.steps.length > 0 && (
-                      <ul className="mt-2 list-disc pl-5 text-sm text-gray-700 space-y-1">
-                        {generated.steps.map((st, i) => <li key={i}>{st}</li>)}
-                      </ul>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">Click Generate to create a personalised plan based on your inputs and results above.</p>
-                )}
-              </div>
-            </div>
-          </Section>
-        </div>
-
-        <div className="space-y-6">
-          <Section title="Your Progress" right={<span className="text-xs rounded-full bg-amber-100 px-2 py-1 text-amber-800">New</span>}>
-            <Gamification key={gamKey} baseUrl={baseUrl} />
-          </Section>
-
-          <Section title="Save Scenario" right={<button onClick={saveScenario} disabled={saving} className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>}>
-            <div className="space-y-3">
-              <label className="block">
-                <span className="text-sm text-gray-700">Name</span>
-                <input value={scenarioName} onChange={(e) => setScenarioName(e.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
-              </label>
-              <label className="block">
-                <span className="text-sm text-gray-700">Notes</span>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="mt-1 w-full rounded border px-3 py-2" />
-              </label>
-            </div>
-          </Section>
-
-          <Section title="Saved Strategies">
-            {loadingStrategies ? (
-              <p className="text-sm text-gray-500">Loading...</p>
-            ) : strategies.length === 0 ? (
-              <p className="text-sm text-gray-500">No strategies saved yet.</p>
-            ) : (
-              <ul className="divide-y">
-                {strategies.map((s) => (
-                  <li key={s.id} className="py-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">{s.title}</div>
-                        <div className="text-xs text-gray-500">{s.kind} • {s.audience}</div>
-                      </div>
-                      <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">{new Date(s.created_at || Date.now()).toLocaleDateString()}</span>
-                    </div>
-                    {s.description && <p className="mt-1 text-sm text-gray-600">{s.description}</p>}
-                    {s.steps && s.steps.length > 0 && (
-                      <ul className="mt-2 list-disc pl-5 text-xs text-gray-600 space-y-1">
-                        {s.steps.slice(0,3).map((st, i) => <li key={i}>{st}</li>)}
-                      </ul>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-
-          <Section title="Bank Connections">
-            <Banking baseUrl={baseUrl} onLinked={() => setGamKey((k) => k + 1)} />
-          </Section>
-
-          <Section title="Saved Scenarios">
-            {scenarios.length === 0 ? (
-              <p className="text-sm text-gray-500">No scenarios yet. Save one to get started.</p>
-            ) : (
-              <ul className="divide-y">
-                {scenarios.map((s) => (
-                  <li key={s.id} className="py-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">{s.name}</div>
-                        <div className="text-xs text-gray-500">{s.scenario_type} • {s.inputs?.taxIncome ? `$${s.inputs.taxIncome.toLocaleString()}` : ''}</div>
-                      </div>
-                      <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">{new Date(s.created_at || Date.now()).toLocaleDateString()}</span>
-                    </div>
-                    {s.notes && <p className="mt-1 text-sm text-gray-600">{s.notes}</p>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-
-          <Section title="About">
-            <p className="text-sm text-gray-600">
-              This tool provides simplified Australian calculations for tax, cashflow and super. For
-              tailored advice, consult a licensed professional. Rates approximate 2024–25 settings.
-            </p>
-          </Section>
-        </div>
-      </main>
-
-      <footer className="border-t bg-white/70">
-        <div className="mx-auto max-w-6xl px-6 py-4 text-xs text-gray-500">
-          Backend: {baseUrl}
-        </div>
-      </footer>
-    </div>
+          </div>
+        )}
+      </div>
+    </Section>
   )
 }
 
-function Stat({ title, value }) {
+function NetWorth(){
+  const [ownerType, setOwnerType] = useState('user')
+  const ownerId = ownerType==='user' ? 'demo-user' : 'demo-biz'
+  const {data, refetch} = useFetch(`${API}/api/networth?owner_type=${ownerType}&owner_id=${ownerId}`)
+  const [snap, setSnap] = useState({assets:[{name:'Home', value:750000}], liabilities:[{name:'Mortgage', value:550000}]})
+  const add = async ()=>{
+    const payload = {owner_type: ownerType, owner_id: ownerId, date: new Date().toISOString(), assets: snap.assets, liabilities: snap.liabilities}
+    await fetch(`${API}/api/networth/snapshot`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
+    refetch()
+  }
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <div className="text-xs text-gray-500">{title}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+    <Section title="Net Worth" actions={<select className="input" value={ownerType} onChange={e=>setOwnerType(e.target.value)}><option value="user">Individual</option><option value="business">Business</option></select>}>
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <button onClick={add} className="btn-primary">Add Snapshot</button>
+          <button onClick={refetch} className="btn-secondary">Refresh</button>
+        </div>
+        <div className="h-32 bg-slate-100 rounded flex items-end gap-1 p-2">
+          {(data?.series||[]).map((pt,idx)=>{
+            const max = Math.max(...(data?.series||[]).map(p=>p.net_worth||0), 1)
+            const h = Math.max(2, Math.round((pt.net_worth||0)/max*100))
+            return <div key={idx} title={`${pt.date}: $${pt.net_worth}`} className="bg-emerald-500 w-6" style={{height: `${h}%`}}></div>
+          })}
+        </div>
+        <details className="bg-slate-50 border rounded p-3">
+          <summary className="cursor-pointer font-medium">Expand: Strategy Architecture</summary>
+          <StrategyArchitecture />
+        </details>
+      </div>
+    </Section>
+  )
+}
+
+function StrategyArchitecture(){
+  const {data: accs} = useFetch(`${API}/api/cdr/accounts`)
+  return (
+    <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {(accs?.accounts||[]).map(a => (
+        <div key={a.id} className="border rounded p-3">
+          <div className="font-medium">{a.name} • {a.number || a.id}</div>
+          <div className="text-sm text-slate-600">{a.institution} • {a.type}</div>
+          <div className="text-slate-800">Balance: ${a.balance?.toFixed(2)}</div>
+        </div>
+      ))}
     </div>
   )
 }
 
-export default App
+export default function App(){
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-emerald-50">
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Finance Optimizer AU</h1>
+            <p className="text-slate-600">Gamified planning • CDR demo • Strategy routing</p>
+          </div>
+        </header>
+        <GamificationPanel />
+        <NetWorth />
+        <BankingPanel />
+        <Profiles />
+        <IncomeExpenses />
+        <StrategyBuilder />
+      </div>
+    </div>
+  )
+}
+
+// simple utility styles using Tailwind existing classes
