@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import Gamification from './components/Gamification'
+import Banking from './components/Banking'
 
 function NumberInput({ label, value, onChange, step = 0.01, min = 0, prefix = '$', suffix = '', disabled = false }) {
   return (
@@ -65,6 +67,9 @@ function App() {
   const [strategies, setStrategies] = useState([])
   const [loadingStrategies, setLoadingStrategies] = useState(false)
   const [savingStrategy, setSavingStrategy] = useState(false)
+
+  // Gamification refresh key
+  const [gamKey, setGamKey] = useState(0)
 
   const fetchScenarios = async () => {
     try {
@@ -166,6 +171,7 @@ function App() {
       })
       if (!r.ok) throw new Error('Save failed')
       await fetchScenarios()
+      setGamKey((k) => k + 1)
     } catch (e) {
       alert('Could not save scenario: ' + e.message)
     } finally {
@@ -206,6 +212,7 @@ function App() {
       })
       if (!r.ok) throw new Error('Save strategy failed')
       await fetchStrategies()
+      setGamKey((k) => k + 1)
       alert('Strategy saved')
     } catch (e) {
       alert(e.message)
@@ -225,7 +232,13 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-emerald-50">
       <header className="border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="text-xl font-bold tracking-tight">Finance Optimizer AU</div>
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-600 to-emerald-500 text-white grid place-items-center font-bold">F</div>
+            <div>
+              <div className="text-xl font-bold tracking-tight">Finance Optimizer AU</div>
+              <div className="text-xs text-gray-500">Gamified planning • CDR demo connections</div>
+            </div>
+          </div>
           <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1">
             {['individual', 'business'].map((m) => (
               <button
@@ -378,6 +391,10 @@ function App() {
         </div>
 
         <div className="space-y-6">
+          <Section title="Your Progress" right={<span className="text-xs rounded-full bg-amber-100 px-2 py-1 text-amber-800">New</span>}>
+            <Gamification key={gamKey} baseUrl={baseUrl} />
+          </Section>
+
           <Section title="Save Scenario" right={<button onClick={saveScenario} disabled={saving} className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>}>
             <div className="space-y-3">
               <label className="block">
@@ -417,6 +434,10 @@ function App() {
                 ))}
               </ul>
             )}
+          </Section>
+
+          <Section title="Bank Connections">
+            <Banking baseUrl={baseUrl} onLinked={() => setGamKey((k) => k + 1)} />
           </Section>
 
           <Section title="Saved Scenarios">
