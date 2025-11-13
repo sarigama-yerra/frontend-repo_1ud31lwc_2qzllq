@@ -59,6 +59,13 @@ function App() {
   const [scenarios, setScenarios] = useState([])
   const [saving, setSaving] = useState(false)
 
+  // Strategies
+  const [prebuilt, setPrebuilt] = useState([])
+  const [generated, setGenerated] = useState(null)
+  const [strategies, setStrategies] = useState([])
+  const [loadingStrategies, setLoadingStrategies] = useState(false)
+  const [savingStrategy, setSavingStrategy] = useState(false)
+
   const fetchScenarios = async () => {
     try {
       const r = await fetch(`${baseUrl}/api/scenarios`)
@@ -69,9 +76,40 @@ function App() {
     }
   }
 
+  const fetchPrebuilt = async () => {
+    try {
+      const r = await fetch(`${baseUrl}/api/strategies/prebuilt?audience=${mode}`)
+      const data = await r.json()
+      setPrebuilt(data)
+    } catch (e) {
+      setPrebuilt([])
+    }
+  }
+
+  const fetchStrategies = async () => {
+    setLoadingStrategies(true)
+    try {
+      const r = await fetch(`${baseUrl}/api/strategies?audience=${mode}`)
+      const data = await r.json()
+      setStrategies(data)
+    } catch (e) {
+      setStrategies([])
+    } finally {
+      setLoadingStrategies(false)
+    }
+  }
+
   useEffect(() => {
     fetchScenarios()
+    fetchPrebuilt()
+    fetchStrategies()
   }, [])
+
+  useEffect(() => {
+    // refresh audience-based lists when mode changes
+    fetchPrebuilt()
+    fetchStrategies()
+  }, [mode])
 
   const runTax = async () => {
     const entity = mode === 'business' ? 'company' : 'individual'
@@ -132,6 +170,47 @@ function App() {
       alert('Could not save scenario: ' + e.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const generateStrategy = async () => {
+    try {
+      const inputs = {
+        incomeMonthly,
+        expensesMonthly,
+        savingsRateTarget,
+        salary,
+        concessional,
+      }
+      const results = { taxResult, cashflowResult, superResult }
+      const payload = { scenario_type: mode, inputs, results }
+      const r = await fetch(`${baseUrl}/api/strategies/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const data = await r.json()
+      setGenerated(data)
+    } catch (e) {
+      alert('Failed to generate strategy')
+    }
+  }
+
+  const saveStrategy = async (strategy) => {
+    setSavingStrategy(true)
+    try {
+      const r = await fetch(`${baseUrl}/api/strategies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(strategy)
+      })
+      if (!r.ok) throw new Error('Save strategy failed')
+      await fetchStrategies()
+      alert('Strategy saved')
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setSavingStrategy(false)
     }
   }
 
@@ -208,6 +287,94 @@ function App() {
               )}
             </Section>
           )}
+
+          <Section title="Strategies (AI-assisted)">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800">Prebuilt</h3>
+                  <span className="text-xs rounded bg-gray-100 px-2 py-1">{mode}</span>
+                </div>
+                <div className="space-y-3">
+                  {prebuilt.length === 0 ? (
+                    <p className="text-sm text-gray-500">No prebuilt strategies found.</p>
+                  ) : (
+                    prebuilt.map((s, idx) => (
+                      <div key={idx} className="rounded border p-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">{s.title}</div>
+                            <p className="text-sm text-gray-600 mt-1">{s.description}</p>
+                          </div>
+                          <button
+                            onClick={() => saveStrategy({
+                              title: s.title,
+                              audience: s.audience,
+                              kind: 'prebuilt',
+                              description: s.description,
+                              steps: s.steps,
+                              assumptions: {},
+                              estimated_impact: s.estimated_impact || {},
+                              scenario_id: null,
+                            })}
+                            className="rounded bg-gray-900 px-3 py-1.5 text-white text-sm hover:bg-black disabled:opacity-50"
+                            disabled={savingStrategy}
+                          >
+                            {savingStrategy ? 'Saving...' : 'Save'}
+                          </button>
+                        </div>
+                        {s.steps && s.steps.length > 0 && (
+                          <ul className="mt-2 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                            {s.steps.map((st, i) => <li key={i}>{st}</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800">Generated</h3>
+                  <button onClick={generateStrategy} className="rounded bg-blue-600 px-3 py-1.5 text-white text-sm hover:bg-blue-700">Generate</button>
+                </div>
+                {generated ? (
+                  <div className="rounded border p-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-medium text-gray-900">{generated.title}</div>
+                        <p className="text-sm text-gray-600 mt-1">{generated.description}</p>
+                      </div>
+                      <button
+                        onClick={() => saveStrategy({
+                          title: generated.title,
+                          audience: generated.audience,
+                          kind: 'generated',
+                          description: generated.description,
+                          steps: generated.steps || [],
+                          assumptions: generated.assumptions || {},
+                          estimated_impact: generated.estimated_impact || {},
+                          scenario_id: null,
+                        })}
+                        className="rounded bg-gray-900 px-3 py-1.5 text-white text-sm hover:bg-black disabled:opacity-50"
+                        disabled={savingStrategy}
+                      >
+                        {savingStrategy ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
+                    {generated.steps && generated.steps.length > 0 && (
+                      <ul className="mt-2 list-disc pl-5 text-sm text-gray-700 space-y-1">
+                        {generated.steps.map((st, i) => <li key={i}>{st}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Click Generate to create a personalised plan based on your inputs and results above.</p>
+                )}
+              </div>
+            </div>
+          </Section>
         </div>
 
         <div className="space-y-6">
@@ -222,6 +389,34 @@ function App() {
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="mt-1 w-full rounded border px-3 py-2" />
               </label>
             </div>
+          </Section>
+
+          <Section title="Saved Strategies">
+            {loadingStrategies ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : strategies.length === 0 ? (
+              <p className="text-sm text-gray-500">No strategies saved yet.</p>
+            ) : (
+              <ul className="divide-y">
+                {strategies.map((s) => (
+                  <li key={s.id} className="py-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-gray-900">{s.title}</div>
+                        <div className="text-xs text-gray-500">{s.kind} • {s.audience}</div>
+                      </div>
+                      <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">{new Date(s.created_at || Date.now()).toLocaleDateString()}</span>
+                    </div>
+                    {s.description && <p className="mt-1 text-sm text-gray-600">{s.description}</p>}
+                    {s.steps && s.steps.length > 0 && (
+                      <ul className="mt-2 list-disc pl-5 text-xs text-gray-600 space-y-1">
+                        {s.steps.slice(0,3).map((st, i) => <li key={i}>{st}</li>)}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
 
           <Section title="Saved Scenarios">
